@@ -146,16 +146,6 @@ public class SCPSolver implements ISolver {
 		//double[] sol = solver.solve(lp);
 		
 		/*
-		cplex.addMinimize(
-				CplexSolver.getExpressionToMinimize(
-						cplex, 
-						inF,
-						allAdmissibleAllocations,
-						users,
-						inF.getRelativeInsatisfactionFor(allAdmissibleAllocations),
-						allocToVar, varPerOwner));
-		
-		
 		
 		generateAllocationConstraints(
 				cplex,
@@ -239,6 +229,7 @@ public class SCPSolver implements ISolver {
 		List<Double> weights = new ArrayList<>();
 		//IloNumExpr exprToOptimize =  cplex.constant(0);
 		
+		
 		for(UserResourceInstanceAllocation a:allowedAllocations)
 		{
 			weights.add(Math.pow(users.size(), prefsPerAllocation.get(a))+1);
@@ -261,14 +252,16 @@ public class SCPSolver implements ISolver {
 					varPerAlloc.get(a),
 					prefsPerAllocation.get(a));
 			i++;
-		}
-		*/
+		}*/
+		
 		if(inF.getOwnerAllocationPreferences()
 				.equals(OwnerDesire.AT_LEAST_ONE_INSTANCE_PER_OWNER))
 		{
-			/*exprToOptimize = cplex.prod(varPerOwner.size()+1,
-					exprToOptimize);*/
-			weights.add(varPerOwner.size()+1.0);
+		
+			for (int i = 0; i < weights.size(); i++) {
+				weights.set(i,weights.get(i) * (varPerOwner.size()+1.0));
+			}
+				
 			
 			//IloNumExpr ownerInterest = cplex.constant(0);
 			
