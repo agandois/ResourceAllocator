@@ -3,7 +3,8 @@ import java.util.Set;
 
 import input.ProblemInstance;
 import output.Printer;
-import solver.Solver;
+import solver.CplexSolver;
+import solver.SCPSolver;
 import solver.UserResourceInstanceAllocation;
 
 public class Main {
@@ -88,9 +89,9 @@ public class Main {
 	{
 		ProblemInstance input = ProblemInstance.newInstance(args);
 				
-		Set<UserResourceInstanceAllocation> res = Solver.getOptimalAllocation(input);
+		Set<UserResourceInstanceAllocation> res = SCPSolver.getOptimalAllocation(input);
 		
-		Printer.displayResults(args,input,res);
+		//Printer.displayResults(args,input,res);
 	}
 
 	

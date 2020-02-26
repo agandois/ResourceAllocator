@@ -11,6 +11,6 @@ module ResourceAllocator {
 	exports model;
 	exports solver;
 
-	requires cplex;
+	requires SCPSolver;
 	requires java.desktop;
 }

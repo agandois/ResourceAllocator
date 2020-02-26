@@ -22,11 +22,7 @@ import model.User;
 import model.UserGroup;
 import output.Printer;
 
-public class Solver {
-	
-	public enum ConstraintsOnResourceOwners{
-		NO_CONSTRAINTS,	MINIMIZE_RESOURCE_CONSUMMED_PER_OWNER;}
-
+public class CplexSolver implements ISolver {
 
 	public static Optional<Set<UserResourceInstanceAllocation>> 
 	optimizeAccordingToMaxInsatisfaction(
@@ -76,6 +72,8 @@ public class Solver {
 										}
 									}));
 	
+			// plus utilisé? 
+			/*
 			for(User pl:users)
 			{
 				int worseAllocValue = 1;
@@ -94,8 +92,9 @@ public class Solver {
 				 * for(UserResourceInstanceAllocation a: allAdmissibleAllocations)
 					if(!allAdmissibleAllocations.contains(a) && a.getUser().equals(pl))
 						inF.getAllocations().put(a, worseAllocValue+1);*/
+			/*
 			}
-			
+			*/
 			Map<ResourceInstance, IloIntVar> varPerResource = getVarsPerResource(
 					cplex, allAdmissibleResourceInstances);
 			
@@ -104,7 +103,7 @@ public class Solver {
 					);
 			
 			cplex.addMinimize(
-					Solver.getExpressionToMinimize(
+					CplexSolver.getExpressionToMinimize(
 							cplex, 
 							inF,
 							allAdmissibleAllocations,
@@ -289,7 +288,7 @@ public class Solver {
 					"Trying to find an allocation with a maximum "
 							+ "least satisfaction of rank:"+i);
 
-			res= Solver.optimizeAccordingToMaxInsatisfaction(
+			res= CplexSolver.optimizeAccordingToMaxInsatisfaction(
 					i,
 					input,Integer.MAX_VALUE);
 		}
@@ -339,7 +338,7 @@ public class Solver {
 				minAllocationPerOwner = i+1;
 		}*/
 		
-		return Solver.optimizeAccordingToMaxInsatisfaction(
+		return CplexSolver.optimizeAccordingToMaxInsatisfaction(
 				worseInsatisfactionConsidered,
 				input,Integer.MAX_VALUE).get();
 	}
@@ -356,7 +355,7 @@ public class Solver {
 						+max
 				);
 
-		res= Solver.optimizeAccordingToMaxInsatisfaction(
+		res= CplexSolver.optimizeAccordingToMaxInsatisfaction(
 				worseInsatisfactionToMeet,
 				input,max);
 
