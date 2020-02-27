@@ -96,6 +96,7 @@ public class SCPSolver implements ISolver {
 		Map<ResourceInstance, String> resourceMinLiftingJokerVars = 
 			allAdmissibleResourceInstances.stream().collect(
 				Collectors.toMap(Function.identity(), x-> {
+					NameToId.put("jokerForDiscardingTheMinAllocationConstraint("+x+")",NameToId.size());
 					return "jokerForDiscardingTheMinAllocationConstraint("+x+")";
 				})
 			);
@@ -245,8 +246,87 @@ public class SCPSolver implements ISolver {
 				varPerAlloc, 
 				allAdmissibleResources,
 				validAllocations);
+		
+		forceResourcesToBeAllocatedAccordingToUserResourceAllocations(
+				lp,
+				allAdmissibleAllocations, allocatedResourceVar, varPerAlloc);
+		
+		double weights[] = new double[NameToId.size()];
+		for(String joker: allocationJoker.values()) {
+			int id  = NameToId.get(joker);
+			weights[id] = 1.0;
+			}
+		lp.addConstraint(new LinearSmallerThanEqualsConstraint(weights,1.0,"AtMostOneJoker"));
 
+		
+		for(ResourceInstance resource: allAdmissibleResources.stream()
+				.filter(x->allAdmissibleAllocations.contains(x))
+				.collect(Collectors.toSet()))
+		{
+			weights = new double[NameToId.size()];
+			//IloNumExpr countUsersPerResource = cplex.constant(0);
+			for(UserResourceInstanceAllocation s: inF.getAllocationsForResource(resource))
+			{
+				int  id  = NameToId.get(varPerAlloc.get(s));
+				weights[id] = 1.0;
+			}
+			
+			int id  = NameToId.get(allocatedResourceVar.get(resource));
+			weights[id] = inF.getMinNumUsersPerResource();
+			//if the resource is not allocated, then the minimum is zero
+			/*countUsersPerResource = cplex.sum(
+					countUsersPerResource,
+					cplex.prod(-inF.getMinNumUsersPerResource(),
+							allocatedResourceVar.get(resource)));*/
+					
+			lp.addConstraint(new LinearBiggerThanEqualsConstraint(weights,0.0,"EachAllocatedResourceIsAllocatedAtLeastKTimes("
+					+resource+","+inF.getMinNumUsersPerResource()+")"));
+		}
+		
+		for(UserGroup userGroup: inF.getUserGroups())
+			for(ResourceInstance resource: allAdmissibleResources.stream()
+					.filter(x->allAdmissibleAllocations.contains(x))
+					.collect(Collectors.toSet()))
+			{
+				User u0 = userGroup.getUsers().iterator().next();
+				UserResourceInstanceAllocation u0PicksR=
+						UserResourceInstanceAllocation.newInstance(u0, resource);
+				
+				if(!varPerAlloc.containsKey(u0PicksR)) continue;
+				
+				for(User u1: userGroup.getUsers())	
+				{
+					UserResourceInstanceAllocation u1PicksR= 
+							UserResourceInstanceAllocation.newInstance(u1, resource);
 
+					weights = new double[NameToId.size()];
+					int id = NameToId.get(varPerAlloc.get(u0PicksR));
+					weights[id] = 1.0;
+					/*IloNumExpr exprUser0PicksR =
+							varPerAlloc.get(u0PicksR);*/
+					id = NameToId.get(varPerAlloc.get(u1PicksR));
+					weights[id] = -1.0;
+					/*IloNumExpr exprUser1PicksR =
+							varPerAlloc.get(u1PicksR);*/
+					
+					lp.addConstraint(new LinearEqualsConstraint(weights,0.0,"PairedUsersMatchTheirDecisions("
+							+u0+","
+							+u1+","+
+							resource+")"));
+
+				}
+			}
+	
+		addConstraintsOnResourceOwners(
+				lp,
+				allAdmissibleResources,
+				allAdmissibleAllocations,
+				inF,
+				maxNbResourcePerOwner, varPerAlloc, allocatedResourceVar);
+		/*
+		generateHardAllocationsConstraints(lp, varPerAlloc, inF.getHardConstraints());
+*/
+		
 	}
 	
 	private static Map<ResourceInstance, String> getVarsPerResource(Set<ResourceInstance> allAdmissibleResourceInstances) {
@@ -427,6 +507,62 @@ public class SCPSolver implements ISolver {
 	}
 	
 	
-
+	private static void forceResourcesToBeAllocatedAccordingToUserResourceAllocations(
+			LinearProgram lp, 
+			Set<UserResourceInstanceAllocation> allAdmissibleAllocations,
+			Map<ResourceInstance, String> allocatedResourceVar,
+			Map<UserResourceInstanceAllocation, String> varPerAlloc){
+		for(UserResourceInstanceAllocation a:allAdmissibleAllocations)
+		{
+			double weights[] = new double[NameToId.size()];
+			int id = NameToId.get(varPerAlloc.get(a));
+			weights[id] = -1.0;
+			
+			id = NameToId.get(allocatedResourceVar.get(a.getResource()));
+			weights[id] = 1.0;
+			
+			lp.addConstraint(new LinearBiggerThanEqualsConstraint(weights,0.0,"AllocationsEntailResourceAllocations("+a.getResource()+","+a+")"));
+		}
+	}
 	
+	
+	private static void addConstraintsOnResourceOwners(
+			LinearProgram lp, 
+			SortedSet<ResourceInstance> allAdmissibleResources, 
+			Set<UserResourceInstanceAllocation> allAdmissibleAllocations,
+			ProblemInstance inF, 
+			int maxNbResourcePerOwner, 
+			Map<UserResourceInstanceAllocation, String> varPerAlloc,
+			Map<ResourceInstance,String> varPerResource){
+
+		for(ResourceOwner rp : inF.getAllResourceOwners())
+		{
+			//IloNumExpr countResourcesAllocatedForRP = cplex.constant(0);
+			double weights[] = new double[NameToId.size()];
+			for(ResourceInstance r: inF.getResourceInstancesFrom(rp)
+					.stream()
+					.filter(x->allAdmissibleResources.contains(x))
+					.collect(Collectors.toSet())) {
+				int id = NameToId.get(varPerResource.get(r));
+				weights[id] = 1.0;
+			}
+			
+			lp.addConstraint(new LinearSmallerThanEqualsConstraint(weights,maxNbResourcePerOwner,"AllocateResourceFromAllocatorAtMost"+maxNbResourcePerOwner+"Times("
+					+rp+","+inF.getMinNumUsersPerResource()+")"));
+			
+		}
+	}
+	
+	static void generateHardAllocationsConstraints(
+			LinearProgram lp, 
+			Map<UserResourceInstanceAllocation, String> varPerAlloc,
+			Set<UserResourceInstanceAllocation> hardConstraints){
+		for(UserResourceInstanceAllocation hc: hardConstraints) {
+			double weights[] = new double[NameToId.size()];
+			int id = NameToId.get(varPerAlloc.get(hc));
+			weights[id] = 1.0;
+			lp.addConstraint(new LinearEqualsConstraint(weights, 1.0,"HardConstraint("+hc+")"));
+		}
+	}
+		
 }
