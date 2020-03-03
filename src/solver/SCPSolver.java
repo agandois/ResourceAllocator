@@ -101,7 +101,6 @@ public class SCPSolver implements ISolver {
 				})
 			);
 		
-		
 		// plus utilisé?
 		/*
 		for(User pl:users)
@@ -131,6 +130,26 @@ public class SCPSolver implements ISolver {
 		// variables booléennes
 		Map<ResourceOwner, String> varPerOwner = getVarsPerOwner(inF, allAdmissibleAllocations);
 		
+		Map<UserGroup,Map<ResourceInstance,String>> varPerResourcePerGroup = new HashMap<>();
+		
+		for(UserGroup ug: inF.getUserGroups())
+		{
+			
+			varPerResourcePerGroup.put(ug, new HashMap<>());
+			for(ResourceInstance r: 
+				allocToVar.keySet()
+				.stream()
+				.filter(x->ug.getUsers().contains(x.getUser()))
+				.map(x->x.getResource())
+				.collect(Collectors.toSet())
+					)
+			{
+				NameToId.put("isResourceAllocatedToGroup("+r+","+ug+")", NameToId.size());
+				varPerResourcePerGroup.get(ug).put(r, "isResourceAllocatedToGroup("+r+","+ug+")");
+			}
+		}
+		
+		
 		double[] weights = SCPSolver.getExpressionToMinimize( 
 				inF,
 				allAdmissibleAllocations,
@@ -155,18 +174,23 @@ public class SCPSolver implements ISolver {
 				varPerResource,
 				varPerOwner,
 				resourceMinLiftingJokerVars,
-				inF, maxNbResourcePerOwner
+				inF, varPerResourcePerGroup, maxNbResourcePerOwner
 				);
-		
-		
-		
 		
 		System.out.println(lp.convertToCPLEX());
 		
 		LinearProgramSolver solver  = SolverFactory.newDefault();
 		System.out.println(solver);
-		//double[] sol = solver.solve(lp);
+		double[] sol = solver.solve(lp);
+		System.out.println(sol);
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < sol.length; i++) {
+			sb.append(sol[i] + " ");
+			if (i % 50 == 0)
+				sb.append("\n");
+		}
 		
+		System.out.println(sb);
 		
 		
 		/*
@@ -215,6 +239,7 @@ public class SCPSolver implements ISolver {
 			Map<ResourceOwner, String> varPerActiveOwner, 
 			Map<ResourceInstance, String> allocationJoker,
 			ProblemInstance inF,
+			Map<UserGroup,Map<ResourceInstance,String>> varPerResourcePerGroup,
 			int maxNbResourcePerOwner
 			) {
 		
@@ -224,7 +249,7 @@ public class SCPSolver implements ISolver {
 				varPerAlloc
 				);
 
-		matchAllocationsOfGroups(lp, inF, varPerAlloc);
+		matchAllocationsOfGroups(lp, inF, varPerAlloc, varPerResourcePerGroup);
 		
 		Set<UserResourceInstanceAllocation>validAllocations = varPerAlloc.keySet();
 		for(User pl: inF.getAllUsers())
@@ -365,13 +390,16 @@ public class SCPSolver implements ISolver {
 			Map<ResourceOwner, String> varPerOwner
 			) {
 		
-		List<Double> weights = new ArrayList<>();
+		double weights[] = new double[NameToId.size()];
+		//List<Double> weights = new ArrayList<>();
 		//IloNumExpr exprToOptimize =  cplex.constant(0);
 		
 		
 		for(UserResourceInstanceAllocation a:allowedAllocations)
 		{
-			weights.add(Math.pow(users.size(), prefsPerAllocation.get(a))+1);
+			int id = NameToId.get(varPerAlloc.get(a));
+			weights[id] = Math.pow(users.size(), prefsPerAllocation.get(a))+1;
+			//weights.add(Math.pow(users.size(), prefsPerAllocation.get(a))+1);
 			/*exprToOptimize = 
 					cplex.sum(
 							exprToOptimize,
@@ -397,25 +425,23 @@ public class SCPSolver implements ISolver {
 				.equals(OwnerDesire.AT_LEAST_ONE_INSTANCE_PER_OWNER))
 		{
 		
-			for (int i = 0; i < weights.size(); i++) {
-				weights.set(i,weights.get(i) * (varPerOwner.size()+1.0));
+			for (int i = 0; i < weights.length; i++) {
+				weights[i] = weights[i] * (varPerOwner.size()+1.0);
 			}
 				
 			
 			//IloNumExpr ownerInterest = cplex.constant(0);
 			
-			for(ResourceOwner ro:varPerOwner.keySet())
-				weights.add(-1.0);
-				//ownerInterest = cplex.sum(cplex.prod(-1,varPerOwner.get(ro)), ownerInterest);
+			for(ResourceOwner ro:varPerOwner.keySet()) {
+				int id = NameToId.get(varPerOwner.get(ro));
+				weights[id] = -1.0;
+			}
+			//ownerInterest = cplex.sum(cplex.prod(-1,varPerOwner.get(ro)), ownerInterest);
 			
 			//exprToOptimize = cplex.sum(ownerInterest, exprToOptimize);	
 		}
 		
-		double[] weightsArray = new double[weights.size()];
-		for (int i = 0; i < weights.size(); i++)
-			weightsArray[i] = weights.get(i);
-		
-		return weightsArray;
+		return weights;
 	}
 	
 	private static void connectResourcesAndAllocations(LinearProgram lp ,ProblemInstance inF,
@@ -448,28 +474,14 @@ public class SCPSolver implements ISolver {
 	}
 	
 	private static void matchAllocationsOfGroups(LinearProgram lp, ProblemInstance inF,
-			Map<UserResourceInstanceAllocation, String> varPerAlloc
+			Map<UserResourceInstanceAllocation, String> varPerAlloc, Map<UserGroup,Map<ResourceInstance,String>> varPerResourcePerGroup
 			){
 		
-		Map<UserGroup,Map<ResourceInstance,String>> varPerResourcePerGroup = 
-				new HashMap<>();
+
 
 		for(UserGroup ug: inF.getUserGroups())
 		{
 			
-			varPerResourcePerGroup.put(ug, new HashMap<>());
-			for(ResourceInstance r: 
-				varPerAlloc.keySet()
-				.stream()
-				.filter(x->ug.getUsers().contains(x.getUser()))
-				.map(x->x.getResource())
-				.collect(Collectors.toSet())
-					)
-			{
-				NameToId.put("isResourceAllocatedToGroup("+r+","+ug+")", NameToId.size());
-				varPerResourcePerGroup.get(ug).put(r,
-						"isResourceAllocatedToGroup("+r+","+ug+")");
-			}
 			double weights[] = new double[NameToId.size()];
 			for(UserResourceInstanceAllocation ua:
 				varPerAlloc.keySet().stream()
