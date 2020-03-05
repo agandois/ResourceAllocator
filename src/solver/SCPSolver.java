@@ -1,10 +1,15 @@
 package solver;
 
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
@@ -34,11 +39,58 @@ public class SCPSolver implements ISolver {
 						findAllocationWithMinimalWorseInsatisfaction(input),
 						input).getWorseAllocationValue();
 		
-		return null;/*getOptimalAllocationMatchingSatisfactionMeasureAndMinimizingResourceOwnerLoad(
+		return getOptimalAllocationMatchingSatisfactionMeasureAndMinimizingResourceOwnerLoad(
 				input,
-				maximumInsatisfaction);*/
+				maximumInsatisfaction);
 	
 	}
+	
+	/**
+	 * Computes the optimal allocation, using mathematical trickery for the reward function.
+	 * Tries to minimize the maximum number of resource allocated for each owner 
+	 * @param input
+	 * @param worseInsatisfactionConsidered
+	 * @return
+	 */
+	private static Set<UserResourceInstanceAllocation> getOptimalAllocationMatchingSatisfactionMeasureAndMinimizingResourceOwnerLoad(ProblemInstance input,
+			int worseInsatisfactionConsidered) {	
+	/*	int minAllocationPerOwner = 1;
+		int maxAllocationPerOwner = 1;
+		
+		while(!matchesScore(worseInsatisfactionConsidered, maxAllocationPerOwner, input))
+		{
+			minAllocationPerOwner = maxAllocationPerOwner;
+			maxAllocationPerOwner*=2;
+		}
+		
+		Optional<Set<UserResourceInstanceAllocation>> res = Optional.empty();
+		
+		if(input.isMinimizingTheWorkloadOfTheMostLoaded())
+		while(minAllocationPerOwner < maxAllocationPerOwner)
+		{
+			int i = (maxAllocationPerOwner + minAllocationPerOwner) / 2;
+			System.out.println(
+					"Trying to find an allocation with a maximum "
+					+ "least satisfaction of rank:"+worseInsatisfactionConsidered+
+					" and a maximum number of allocations per owner of:"
+					+i
+					);
+			
+			res= Solver.optimizeAccordingToMaxInsatisfaction(
+					worseInsatisfactionConsidered,
+					input,i);
+			
+			if(res.isPresent())
+				maxAllocationPerOwner = i;
+			else
+				minAllocationPerOwner = i+1;
+		}*/
+		
+		return SCPSolver.optimizeAccordingToMaxInsatisfaction(
+				worseInsatisfactionConsidered,
+				input,Integer.MAX_VALUE).get();
+	}
+
 	
 	/**
 	 * Find a feasible allocation, with a maximal level of insatisfaction of minimum value
@@ -59,6 +111,7 @@ public class SCPSolver implements ISolver {
 			res= SCPSolver.optimizeAccordingToMaxInsatisfaction(
 					i,
 					input,Integer.MAX_VALUE);
+			System.out.println("res found");
 		}
 
 		return res.get();
@@ -70,6 +123,7 @@ public class SCPSolver implements ISolver {
 			ProblemInstance inF,
 			int maxNbResourcePerOwner)
 	{
+		NameToId = new HashMap<>();
 		Set<UserResourceInstanceAllocation> allAdmissibleAllocations = 
 				inF.getAllocationsFilteredBy(maxInsatisfaction);
 
@@ -96,33 +150,11 @@ public class SCPSolver implements ISolver {
 		Map<ResourceInstance, String> resourceMinLiftingJokerVars = 
 			allAdmissibleResourceInstances.stream().collect(
 				Collectors.toMap(Function.identity(), x-> {
-					NameToId.put("jokerForDiscardingTheMinAllocationConstraint("+x+")",NameToId.size());
+					addVar("jokerForDiscardingTheMinAllocationConstraint("+x+")");
 					return "jokerForDiscardingTheMinAllocationConstraint("+x+")";
 				})
 			);
 		
-		// plus utilisé?
-		/*
-		for(User pl:users)
-		{
-			int worseAllocValue = 1;
-			if(allAdmissibleAllocations.stream().anyMatch(x-> x.getUser().equals(pl)))
-			{
-				UserResourceInstanceAllocation worseAlloc = 
-						allAdmissibleAllocations.stream()
-						.filter(x-> x.getUser().equals(pl))
-						.max((x,y)->inF.getInsatisfactionFor(x)-
-								inF.getInsatisfactionFor(y)).get();
-				worseAllocValue = inF.getInsatisfactionFor(worseAlloc);
-			}
-			
-			/*@Deprecated
-			 * for(UserResourceInstanceAllocation a: allAdmissibleAllocations)
-				if(!allAdmissibleAllocations.contains(a) && a.getUser().equals(pl))
-			    	inF.getAllocations().put(a, worseAllocValue+1);*/
-		/*
-		 }
-		*/
 		
 		// variables booléennes
 		Map<ResourceInstance, String> varPerResource = getVarsPerResource(allAdmissibleResourceInstances);
@@ -144,7 +176,7 @@ public class SCPSolver implements ISolver {
 				.collect(Collectors.toSet())
 					)
 			{
-				NameToId.put("isResourceAllocatedToGroup("+r+","+ug+")", NameToId.size());
+				addVar("isResourceAllocatedToGroup("+r+","+ug+")");
 				varPerResourcePerGroup.get(ug).put(r, "isResourceAllocatedToGroup("+r+","+ug+")");
 			}
 		}
@@ -157,6 +189,9 @@ public class SCPSolver implements ISolver {
 				inF.getRelativeInsatisfactionFor(allAdmissibleAllocations),
 				allocToVar, varPerOwner);
 		System.out.println(NameToId);
+		for (Map.Entry<String,  Integer> entry : NameToId.entrySet()) {
+			System.out.println(entry.getKey() + " " + entry.getValue());
+		}
 		
 		LinearProgram lp = new LinearProgram(weights);
 		for (int i = 0; i < weights.length; i++) {
@@ -177,44 +212,61 @@ public class SCPSolver implements ISolver {
 				inF, varPerResourcePerGroup, maxNbResourcePerOwner
 				);
 		
-		System.out.println(lp.convertToCPLEX());
+		String program = lp.convertToCPLEX().toString();
+		
+		Map<String, Integer> sortedMap = sortByValue(NameToId);
+		
+		for (Map.Entry<String, Integer> entry : sortedMap.entrySet()) {
+			String varName = "_" + entry.getKey();
+			int varIndex = entry.getValue();
+			String plVarName = "x" + varIndex;
+			program = program.replace(plVarName, varName);
+		}
+		
+		
+		try {
+			FileWriter file = new FileWriter("output_scpsolver.lp");
+			file.write(program);
+			file.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		
+		//System.out.println(program);
 		
 		LinearProgramSolver solver  = SolverFactory.newDefault();
 		System.out.println(solver);
 		double[] sol = solver.solve(lp);
 		System.out.println(sol);
-		StringBuilder sb = new StringBuilder();
+		/*StringBuilder sb = new StringBuilder();
 		for (int i = 0; i < sol.length; i++) {
 			sb.append(sol[i] + " ");
 			if (i % 50 == 0)
 				sb.append("\n");
 		}
 		
-		System.out.println(sb);
+		System.out.println(sb);*/
 		
-		
-		/*
-		//lp.convertToCPLEX();
-
-		if (! cplex.solve() )
-			return Optional.empty();
-		System.out.println("Solution status = " + cplex.getStatus());
-		
-		if(inF.isDebugPrint())
-			debugPrint(cplex, allocToVar, varPerResource,varPerOwner);
-		Set<UserResourceInstanceAllocation>s=
-				processCplexResults(cplex, allocToVar);
+		Set<UserResourceInstanceAllocation> s = processPLResults(sol, allocToVar);
 		
 		
 
 		//s.sort((x,y)->roles.indexOf(x.role) - roles.indexOf(y.role));
 		System.out.println("Minimizing the number of least happy people:");
-		cplex.end();
 		
-		return Optional.of(s);*/
-		
-		return null;
+		return Optional.of(s);
 	}
+
+	static Set<UserResourceInstanceAllocation> processPLResults(
+			double[] sol, 
+			Map<UserResourceInstanceAllocation, String> varPerAlloc) {
+		return varPerAlloc.keySet().stream()
+		.filter(x->{
+				return sol[NameToId.get(varPerAlloc.get(x))]>0.01;
+		})
+		.collect(Collectors.toSet());
+	}
+	
 	
 	static Map<UserResourceInstanceAllocation, String> generateVariablePerAllocation(
 			Collection<UserResourceInstanceAllocation> consideredAllocations
@@ -224,7 +276,7 @@ public class SCPSolver implements ISolver {
 		
 		for(UserResourceInstanceAllocation pl : consideredAllocations) {
 			varPerAlloc.put(pl, pl.toString());
-			NameToId.put(pl.toString(),NameToId.size());
+			addVar(pl.toString());
 		}
 		
 		return varPerAlloc;
@@ -252,6 +304,7 @@ public class SCPSolver implements ISolver {
 		matchAllocationsOfGroups(lp, inF, varPerAlloc, varPerResourcePerGroup);
 		
 		Set<UserResourceInstanceAllocation>validAllocations = varPerAlloc.keySet();
+		
 		for(User pl: inF.getAllUsers())
 		{
 			double weights[] = new double[NameToId.size()];
@@ -265,6 +318,7 @@ public class SCPSolver implements ISolver {
 			lp.addConstraint(new LinearEqualsConstraint(weights, 1.0,"EachUserIsGivenExactlyOneResource("+pl+")"));
 			
 		}
+		
 		
 		allocateEachResourceInstanceAtMostKTimes(lp, 
 				inF, 
@@ -283,13 +337,12 @@ public class SCPSolver implements ISolver {
 			}
 		lp.addConstraint(new LinearSmallerThanEqualsConstraint(weights,1.0,"AtMostOneJoker"));
 
-		
+	
 		for(ResourceInstance resource: allAdmissibleResources.stream()
 				.filter(x->allAdmissibleAllocations.contains(x))
 				.collect(Collectors.toSet()))
 		{
 			weights = new double[NameToId.size()];
-			//IloNumExpr countUsersPerResource = cplex.constant(0);
 			for(UserResourceInstanceAllocation s: inF.getAllocationsForResource(resource))
 			{
 				int  id  = NameToId.get(varPerAlloc.get(s));
@@ -298,16 +351,11 @@ public class SCPSolver implements ISolver {
 			
 			int id  = NameToId.get(allocatedResourceVar.get(resource));
 			weights[id] = inF.getMinNumUsersPerResource();
-			//if the resource is not allocated, then the minimum is zero
-			/*countUsersPerResource = cplex.sum(
-					countUsersPerResource,
-					cplex.prod(-inF.getMinNumUsersPerResource(),
-							allocatedResourceVar.get(resource)));*/
 					
 			lp.addConstraint(new LinearBiggerThanEqualsConstraint(weights,0.0,"EachAllocatedResourceIsAllocatedAtLeastKTimes("
 					+resource+","+inF.getMinNumUsersPerResource()+")"));
 		}
-		
+	
 		for(UserGroup userGroup: inF.getUserGroups())
 			for(ResourceInstance resource: allAdmissibleResources.stream()
 					.filter(x->allAdmissibleAllocations.contains(x))
@@ -327,12 +375,8 @@ public class SCPSolver implements ISolver {
 					weights = new double[NameToId.size()];
 					int id = NameToId.get(varPerAlloc.get(u0PicksR));
 					weights[id] = 1.0;
-					/*IloNumExpr exprUser0PicksR =
-							varPerAlloc.get(u0PicksR);*/
 					id = NameToId.get(varPerAlloc.get(u1PicksR));
 					weights[id] = -1.0;
-					/*IloNumExpr exprUser1PicksR =
-							varPerAlloc.get(u1PicksR);*/
 					
 					lp.addConstraint(new LinearEqualsConstraint(weights,0.0,"PairedUsersMatchTheirDecisions("
 							+u0+","
@@ -341,17 +385,16 @@ public class SCPSolver implements ISolver {
 
 				}
 			}
-	
+
 		addConstraintsOnResourceOwners(
 				lp,
 				allAdmissibleResources,
 				allAdmissibleAllocations,
 				inF,
 				maxNbResourcePerOwner, varPerAlloc, allocatedResourceVar);
-		/*
-		generateHardAllocationsConstraints(lp, varPerAlloc, inF.getHardConstraints());
-*/
 		
+		
+		generateHardAllocationsConstraints(lp, varPerAlloc, inF.getHardConstraints());
 	}
 	
 	private static Map<ResourceInstance, String> getVarsPerResource(Set<ResourceInstance> allAdmissibleResourceInstances) {
@@ -359,7 +402,7 @@ public class SCPSolver implements ISolver {
 		
 		for(ResourceInstance r: allAdmissibleResourceInstances)
 		{
-			NameToId.put("ActiveResourceVar("+r+")",NameToId.size());
+			addVar("ActiveResourceVar("+r+")");
 			res.put(r, "ActiveResourceVar("+r+")");
 		}
 		return res;
@@ -375,7 +418,7 @@ public class SCPSolver implements ISolver {
 		.collect(Collectors.toSet());
 		
 		for(ResourceOwner r: ro) {
-			NameToId.put("ResourceOwnerHasAtLeastOneResourceTaken("+r+")",NameToId.size());
+			addVar("ResourceOwnerHasAtLeastOneResourceTaken("+r+")");
 			res.put(r, "ResourceOwnerHasAtLeastOneResourceTaken("+r+")");
 		}
 		return res;
@@ -391,21 +434,12 @@ public class SCPSolver implements ISolver {
 			) {
 		
 		double weights[] = new double[NameToId.size()];
-		//List<Double> weights = new ArrayList<>();
-		//IloNumExpr exprToOptimize =  cplex.constant(0);
 		
 		
 		for(UserResourceInstanceAllocation a:allowedAllocations)
 		{
 			int id = NameToId.get(varPerAlloc.get(a));
 			weights[id] = Math.pow(users.size(), prefsPerAllocation.get(a))+1;
-			//weights.add(Math.pow(users.size(), prefsPerAllocation.get(a))+1);
-			/*exprToOptimize = 
-					cplex.sum(
-							exprToOptimize,
-							cplex.prod(
-									Math.pow(users.size(), prefsPerAllocation.get(a))+1,
-									varPerAlloc.get(a)));*/
 		}
 		
 		// pas utilisé?
@@ -424,21 +458,15 @@ public class SCPSolver implements ISolver {
 		if(inF.getOwnerAllocationPreferences()
 				.equals(OwnerDesire.AT_LEAST_ONE_INSTANCE_PER_OWNER))
 		{
-		
 			for (int i = 0; i < weights.length; i++) {
 				weights[i] = weights[i] * (varPerOwner.size()+1.0);
 			}
 				
 			
-			//IloNumExpr ownerInterest = cplex.constant(0);
-			
 			for(ResourceOwner ro:varPerOwner.keySet()) {
 				int id = NameToId.get(varPerOwner.get(ro));
 				weights[id] = -1.0;
-			}
-			//ownerInterest = cplex.sum(cplex.prod(-1,varPerOwner.get(ro)), ownerInterest);
-			
-			//exprToOptimize = cplex.sum(ownerInterest, exprToOptimize);	
+			}	
 		}
 		
 		return weights;
@@ -462,9 +490,7 @@ public class SCPSolver implements ISolver {
 				int id =  NameToId.get(varPerAlloc.get(ua));
 				weights[id] = 1.0;
 			}
-			
-			//IloNumExpr resource = 
-					//cplex.prod(allocationsForResource.size(), allocatedResourceVar.get(r));
+
 			int id = NameToId.get(allocatedResourceVar.get(r));
 			weights[id] = -allocationsForResource.size();
 			
@@ -482,12 +508,12 @@ public class SCPSolver implements ISolver {
 		for(UserGroup ug: inF.getUserGroups())
 		{
 			
-			double weights[] = new double[NameToId.size()];
 			for(UserResourceInstanceAllocation ua:
 				varPerAlloc.keySet().stream()
 				.filter(x->ug.getUsers().contains(x.getUser()))
 				.collect(Collectors.toSet()))
 			{
+				double weights[] = new double[NameToId.size()];
 				int id = NameToId.get(varPerResourcePerGroup.get(ug).get(ua.getResource()));
 				weights[id] = -1.0;
 				id =  NameToId.get(varPerAlloc.get(ua));
@@ -549,7 +575,6 @@ public class SCPSolver implements ISolver {
 
 		for(ResourceOwner rp : inF.getAllResourceOwners())
 		{
-			//IloNumExpr countResourcesAllocatedForRP = cplex.constant(0);
 			double weights[] = new double[NameToId.size()];
 			for(ResourceInstance r: inF.getResourceInstancesFrom(rp)
 					.stream()
@@ -576,5 +601,23 @@ public class SCPSolver implements ISolver {
 			lp.addConstraint(new LinearEqualsConstraint(weights, 1.0,"HardConstraint("+hc+")"));
 		}
 	}
+	
+	private static void addVar(String name) {
+		if (!NameToId.containsKey(name))
+			NameToId.put(name, NameToId.size());
+	}
+	
+    public static <K, V extends Comparable<? super V>> Map<K, V> sortByValue(Map<K, V> map) {
+        List<Entry<K, V>> list = new ArrayList<>(map.entrySet());
+        list.sort(Entry.comparingByValue());
+
+        Map<K, V> result = new LinkedHashMap<>();
+        for (int i = list.size() - 1; i >= 0; i--) {
+        	Entry<K, V> entry = list.get(i);
+            result.put(entry.getKey(), entry.getValue());
+        }
+
+        return result;
+    }
 		
 }
