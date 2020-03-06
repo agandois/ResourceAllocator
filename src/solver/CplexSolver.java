@@ -22,7 +22,11 @@ import model.User;
 import model.UserGroup;
 import output.Printer;
 
-public class CplexSolver implements ISolver {
+public class CplexSolver {
+	
+	public enum ConstraintsOnResourceOwners{
+		NO_CONSTRAINTS,	MINIMIZE_RESOURCE_CONSUMMED_PER_OWNER;}
+
 
 	public static Optional<Set<UserResourceInstanceAllocation>> 
 	optimizeAccordingToMaxInsatisfaction(
@@ -72,8 +76,6 @@ public class CplexSolver implements ISolver {
 										}
 									}));
 	
-			// plus utilisé? 
-			/*
 			for(User pl:users)
 			{
 				int worseAllocValue = 1;
@@ -92,9 +94,8 @@ public class CplexSolver implements ISolver {
 				 * for(UserResourceInstanceAllocation a: allAdmissibleAllocations)
 					if(!allAdmissibleAllocations.contains(a) && a.getUser().equals(pl))
 						inF.getAllocations().put(a, worseAllocValue+1);*/
-			/*
 			}
-			*/
+			
 			Map<ResourceInstance, IloIntVar> varPerResource = getVarsPerResource(
 					cplex, allAdmissibleResourceInstances);
 			
