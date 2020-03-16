@@ -91,7 +91,7 @@ public class Main {
 				
 		Set<UserResourceInstanceAllocation> res = SCPSolver.getOptimalAllocation(input);
 		
-		//Printer.displayResults(args,input,res);
+		Printer.displayResults(args,input,res);
 	}
 
 	
